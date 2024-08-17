@@ -1,0 +1,116 @@
+---
+title: "Priori Posteri Model for Binomial Data"
+author: "Zhaojie"
+date: "8/16/2024"
+output: word_document
+---
+```{r}
+```
+
+
+```{r}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+``````{r}
+theta=seq(from=0,to=1,by=.01)
+plot(theta,dbeta(theta,1,1),type="l")
+plot(theta,dbeta(theta,1,5),type="l")
+
+```
+
+``````{r}
+theta=seq(from=0,to=1,by=.01)
+pbeta(.5,1,5)
+```
+
+``````{r}
+theta=seq(from=0,to=1,by=.01)
+plot(theta,dbeta(theta,1,1),type="l")
+plot(theta,dbeta(theta,0.5,0.5),type="l")
+
+```
+
+``````{r}
+# equal-tailed 95% credible interval
+qbeta(.025,8,16)
+qbeta(.975,8,16)
+```
+
+``````{r}
+
+pgamma(0.1,6,93.5)
+```
+
+
+``````{r}
+# equal-tailed 95% credible interval
+qgamma(.05,9,390)
+qgamma(.95,9,390)
+```
+```
+``````{r}
+
+```{r}
+theta=seq(from=0,to=365,by=1)
+plot(theta,dgamma(theta,9,390),type="l")
+```
+
+``````{r}
+# equal-tailed 95% credible interval
+qnorm(.025,96.17,0.042)
+qnorm(.975,96.17,0.042)
+qnorm(p=0.975, mean=96.17, sd=sqrt(0.042))
+```
+
+``````{r}
+z <- rgamma(n=1000, shape=3, rate=200)
+x <- 1/z
+mean(x)
+```
+
+
+
+``````{r}
+z <- rgamma(1000, shape=16.5, rate=6022.9)
+sig2 <- 1/z
+mu <- rnorm(1000, mean=609.3, sd=sqrt(sig2/27.1))
+quantile(x=mu, probs=c(0.025, 0.975))
+mean( muA > muB )
+```
+
+
+``````{r}
+g <- rgamma(1000, shape=16.5, rate=6022.9)
+sig2B <- 1/g
+muB <- rnorm(1000, mean=609.3, sd=sqrt(sig2B/27.1))
+
+h <- rgamma(1000, shape=18, rate=6796.4)
+sig2A <- 1/h
+muA <- rnorm(1000, mean=622.39, sd=sqrt(sig2A/30.1))
+
+mean( muA > muB )
+```
