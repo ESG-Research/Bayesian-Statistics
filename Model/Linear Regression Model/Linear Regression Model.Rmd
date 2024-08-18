@@ -1,0 +1,87 @@
+---
+title: "Untitled"
+author: "Zhaojie"
+date: "8/17/2024"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+#read data
+df=read.table("https://users.stat.ufl.edu/~winner/data/pgalpga2008.dat",header=T)
+attach(df)
+head(df)
+```
+
+```{r}
+#Assign Clumn(Variables) Name
+#separate the LPGA and PGA data
+colnames(df)[1] <- 'dis'
+colnames(df)[2] <- 'acc'
+colnames(df)[3] <- 'FM'
+datF <- subset(df, FM==1, select=1:2)
+datM <- subset(df, FM==2, select=1:2)
+head(datF)
+head(datM)
+plot(datF,'dis','acc')
+plot(datM,'dis','acc')
+```
+
+```{r}
+#Linear regrssion with one variable
+gloff.lm=lm(acc ~ dis,datF)
+summary(gloff.lm)
+
+```
+
+```{r}
+# posterior prediction interval (same as frequentist)
+# 比如dis为260则acc应该是多少，该预测的95%置信区间是多少。
+predict(gloff.lm,data.frame(dis=260),interval="predict")  
+```
+
+```{r}
+#Assign Clumn(Variables) Name
+colnames(df)[1] <- 'dis'
+colnames(df)[2] <- 'acc'
+colnames(df)[3] <- 'FM'
+#Create Dummy use "ifelse" function
+FM <- ifelse(df$FM == '2', 1, 0)
+#Create new data frame to use for regression
+df_reg <- data.frame(DIS = df$dis,
+                     ACC = df$acc,
+                     FM = FM)
+View(df_reg)
+```
+
+```{r}
+#Multiple Linear Regression and Residual Check
+model.honors <- lm(ACC ~ DIS + FM, data=df_reg)
+summary(model.honors)
+plot(fitted(model.honors), residuals(model.honors))
+```
+
