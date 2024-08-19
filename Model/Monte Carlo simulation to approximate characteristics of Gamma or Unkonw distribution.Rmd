@@ -1,0 +1,213 @@
+---
+title: "Monte Carlo simulation to approximate characteristics of Gamma or Unkonw distribution. "
+author: "Zhaojie"
+date: "8/19/2024"
+output: word_document
+---
+```{r}
+
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r,第一个例子只有单参数}
+#设置参数
+set.seed(32) # Initializes the random number generator so we can replicate these results. To get different random numbers, change the seed.
+m = 100
+a = 2.0
+b = 1.0 / 3.0
+
+```
+
+```{r}
+#从Gamma分布中取theta样本
+theta = rgamma(n=m, shape=a, rate=b)
+print(theta)
+head(theta)
+tail(theta)
+```
+
+```{r}
+#给抽样的样本们绘直方图对比Gamma曲线
+hist(theta, freq=FALSE)#frequency = false option so that it gives us a probability density. Rather than counts.
+curve(dgamma(x=x, shape=a, rate=b), col="blue", add=TRUE)
+```
+
+```{r}
+#用抽样theta来近似估计Expect Value E[theta]
+#这就是Monte Carlo simulation
+sum(theta)/m
+mean(theta)#5.752
+#该Gamma（2，1/3）分布的真实E[theta]=a/b  α/β
+a/b #6   
+#5.7与6接近
+```
+
+```{r}
+#增加抽样数，样本量来提升Monte Carlo的预测力
+set.seed(32) 
+m = 10000
+a = 2.0
+b = 1.0 / 3.0
+theta = rgamma(n=m, shape=a, rate=b)
+print(theta)
+head(theta)
+tail(theta)
+hist(theta, freq=FALSE)
+curve(dgamma(x=x, shape=a, rate=b), col="red", add=TRUE)
+sum(theta)/m
+mean(theta)#6.02
+a/b#6   6.02与6非常接近了
+```
+
+```{r}
+#使用Monte Carlo Simulation估计Var(theta)
+var(theta) #18.01
+#真实Var(theta)值：a/b^2, α/β^2
+a/b^2 #18  18.01与18非常接近
+
+```
+
+```{r}
+#if we want to approximate the probability that theta is less than 5
+#We can simply count how many of our simulated thetas are less than 5
+
+ind = theta < 5.0 # set of indicators, TRUE if theta_i < 5
+head(ind)
+head(theta)
+mean(ind) # automatically converts FALSE/TRUE to 0/1
+#0.4974
+```
+
+```{r, pgamma(  )}
+#Ture Gamma(2,1/3) probability that θ<5
+pgamma(q=5.0, shape=a, rate=b)
+#0.4963
+#可见对于“probability that θ<5”的预测，0.4974与0.4963非常接近
+```
+
+```{r, qgamma(  ) & quantile function}
+#What is the 0.9 quantile (90th percentile) of θ ？
+#We can use the quantile function which will order the samples for us #and find the appropriate sample quantile.
+quantile(theta,prob=0.9)
+#90% 0.9 quantile (90th percentile)
+#11.74426
+
+#Ture value of 90percentile 0.9quantile
+qgamma(p=0.9, shape=a, rate=b)
+#11.66916
+#可见对于“90percentile 0.9quantile”的预测，11.74与11.66非常接近
+
+
+###反思这里原分布Beta(α，β)我们可以轻松算出真实总体参数
+###但如果某分布epsilon(a,b,c)我们根本无法计算出参数，则必须用MC
+```
+
+```{r}
+###Monte Carlo error###
+#We can use the CLT to approximate how accurate our Monte Carlo estimates are. 
+#For example, if we seek E(θ) then the sample mean θ¯∗
+#approximately follows a normal distribution with mean E(θ) and #variance Var(θ)/m
+#We will use the sample standard deviation divided by the square root #of m to approximate the Monte Carlo standard deviation.
+```
+
+```{r}
+#error of MC approximate E[theta]
+set.seed(32) 
+m = 10000
+a = 2.0
+b = 1.0 / 3.0
+theta = rgamma(n=m, shape=a, rate=b)
+#calulate standard error
+se = sd(theta) / sqrt(m)
+2.0 * se # we are reasonably confident that (95%) the Monte Carlo estimate is no more than this far from the truth
+mean(theta) - se
+mean(theta) + se
+#So 95% ceridale interval of estimate E[theta] is (5.979,6.064) 
+```
+
+```{r}
+#error of approximate the "probability that theta is less than 5"
+ind = theta < 5.0 # set of indicators, TRUE if theta_i < 5
+head(ind)
+head(theta)
+mean(ind) # automatically converts FALSE/TRUE to 0/1
+#Standard error of "probability that …" estimate
+se=sd(ind)/sqrt(m)
+2.0 * se # we are reasonably confident that (95%) the Monte Carlo estimate is no more than this far from the truth
+mean(ind)-se
+mean(ind)+se
+#So 95% ceridale interval of estimate "Prob that theta >/< k" is (0.492,0.502) 
+```
+
+
+
+
+```{r，第二个例子，双参数，hierarchy model'}
+1, Simulate Φi from Beta(2,2)
+2, Simulate Yi from Binomial(10,Φi)
+```
+
+```{r}
+m = 10e4 #10000 1万次
+
+y = numeric(m) # create the vectors we will fill in with simulations
+phi = numeric(m)
+#Build a Loop
+for (i in 1:m) {
+  phi[i] = rbeta(n=1, shape1=2.0, shape2=2.0)
+  y[i] = rbinom(n=1, size=10, prob=phi[i])
+}
+
+# which is equivalent to the following 'vectorized' code 运行更快
+phi = rbeta(n=m, shape1=2.0, shape2=2.0)
+y = rbinom(n=m, size=10, prob=phi)
+```
+
+```{r}
+#If we are interested only in the marginal distribution of Y
+#we can just ignore the draws for ϕ Beta(2,2)
+#Treat the draws of Y as a sample from its marginal distribution.
+#Here Y no longer binomial, actually it be beta-binomial
+
+#Remember Conditional on phi Φ, Y follows a binomial distribution. 
+#But unconditionally, the marginal distribution of y is not binomial. 
+```
+
+```{r}
+table(y)    #Y是Beta-Binomial n=10 取10次 给K=1-10次列个表格
+table(y)/m  #除以样本数，可以得到大致的每个k次成功的概率(占比)
+mean(y) #均值在4.99
+#注意，这是忽略了参数PhiΦ的Marginal Distribution of Y solely
+```
+
+```{r}
+#给Marginal Distribution Y (Beta-Binomial)画图
+plot(table(y)/m)
+#更精细的画图
+plot(prop.table(table(y)), ylab="P(y)", main="Marginal distribution of y")
+```
+
