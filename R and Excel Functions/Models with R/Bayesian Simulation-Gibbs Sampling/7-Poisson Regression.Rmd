@@ -1,0 +1,277 @@
+---
+title: "Poisson regression"
+author: "Zhaojie"
+date: "8/25/2024"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+install.packages("COUNT")
+library("COUNT")
+data("badhealth")
+?badhealth
+head(badhealth)
+any(is.na(badhealth))
+```
+
+```{r}
+hist(badhealth$numvisit, breaks=20)
+```
+
+```{r}
+plot(jitter(log(numvisit)) ~ jitter(age), data=badhealth, subset=badh==0, xlab="age", ylab="log(visits)")
+points(jitter(log(numvisit)) ~ jitter(age), data=badhealth, subset=badh==1, col="red")
+```
+
+```{r}
+library("rjags")
+mod_string = " model {
+    for (i in 1:length(numvisit)) {
+        numvisit[i] ~ dpois(lam[i])
+        log(lam[i]) = int + b_badh*badh[i] + b_age*age[i] + b_intx*age[i]*badh[i]
+    }
+    
+    int ~ dnorm(0.0, 1.0/1e6)
+    b_badh ~ dnorm(0.0, 1.0/1e4)
+    b_age ~ dnorm(0.0, 1.0/1e4)
+    b_intx ~ dnorm(0.0, 1.0/1e4)
+} "
+
+set.seed(102)
+
+data_jags = as.list(badhealth)
+
+params = c("int", "b_badh", "b_age", "b_intx")
+
+mod = jags.model(textConnection(mod_string), data=data_jags, n.chains=3)
+update(mod, 1e3)
+
+mod_sim = coda.samples(model=mod,
+                        variable.names=params,
+                        n.iter=5e3)
+mod_csim = as.mcmc(do.call(rbind, mod_sim))
+
+## convergence diagnostics
+plot(mod_sim)
+
+gelman.diag(mod_sim)
+autocorr.diag(mod_sim)
+autocorr.plot(mod_sim)
+effectiveSize(mod_sim)
+
+## compute DIC
+dic = dic.samples(mod, n.iter=1e3)
+```
+
+```{r}
+###Residual Check###
+X = as.matrix(badhealth[,-1])
+X = cbind(X, with(badhealth, badh*age))
+head(X)
+(pmed_coef = apply(mod_csim, 2, median))
+llam_hat = pmed_coef["int"] + X %*% pmed_coef[c("b_badh", "b_age", "b_intx")]
+lam_hat = exp(llam_hat)
+
+hist(lam_hat)
+
+resid = badhealth$numvisit - lam_hat
+plot(resid) # the data were ordered
+
+plot(lam_hat, badhealth$numvisit)
+abline(0.0, 1.0)
+
+plot(lam_hat[which(badhealth$badh==0)], resid[which(badhealth$badh==0)], xlim=c(0, 8), ylab="residuals", xlab=expression(hat(lambda)), ylim=range(resid))
+points(lam_hat[which(badhealth$badh==1)], resid[which(badhealth$badh==1)], col="red")
+```
+
+```{r}
+var(resid[which(badhealth$badh==0)])
+var(resid[which(badhealth$badh==1)])
+#The fact that we observed so much more variability than we expected indicates that either the model fits poorly.  Meaning that the covariance don't explain enough of the variability in the data.事实上，我们观察到的变异性比我们预期的要多得多，这表明要么模型拟合得很差。也就是说协方差不能充分解释数据中的可变性。
+#Or the data are over dispersed for this poison likelihood that we've chosen.This is a common issue with count data. If the data are more variable then the poision likelihood suggests, we can look to alternative models for over dispersed data.One common alternative is to use the negative binomial distribution,或者这些数据可能存在过度离散现象，超出了我们所选择泊松Likelihood模型的决定。这是计数数据常见的问题。如果数据变异性超出了泊松Likelihood模型的预期，我们可以考虑使用适用于过度离散数据的其他模型。其中一种常见替代方法是使用负二项分布。
+```
+
+```{r}
+summary(mod_sim)
+```
+
+```{r}
+###Prediction###
+#俩个sample
+x1 = c(0, 35, 0) # good health
+x2 = c(1, 35, 35) # bad health
+#模型
+head(mod_csim)
+#First, we’ll compute the linear part of the predictor:
+loglam1 = mod_csim[,"int"] + mod_csim[,c(2,1,3)] %*% x1
+loglam2 = mod_csim[,"int"] + mod_csim[,c(2,1,3)] %*% x2
+#Next we’ll apply the inverse link:
+lam1 = exp(loglam1)
+lam2 = exp(loglam2)
+#The final step is to use these samples for the λ parameter for each individual and simulate actual number of doctor visits using the likelihood:
+(n_sim = length(lam1))
+
+
+```
+
+```{r}
+#原始Poison分布
+y1 = rpois(n=n_sim, lambda=lam1)
+y2 = rpois(n=n_sim, lambda=lam2)
+
+plot(table(factor(y1, levels=0:18))/n_sim, pch=2, ylab="posterior prob.", xlab="visits")
+points(table(y2+0.1)/n_sim, col="red")
+```
+
+```{r}
+#What is the probability that the person with poor health will have more doctor visits than the person with good health?
+mean(y2>y1)
+#0.9188667,非常高的概率说明Y2类的样本次数高于Y1，这里不是均值，均值是λ。
+```
+
+```{r}
+#Question:
+library("rjags")
+mod_stringq = " model {
+    for (i in 1:length(numvisit)) {
+        numvisit[i] ~ dpois(lam[i])
+        log(lam[i]) = int + b_badh*badh[i] + b_age*age[i] 
+    }
+    
+    int ~ dnorm(0.0, 1.0/1e6)
+    b_badh ~ dnorm(0.0, 1.0/1e4)
+    b_age ~ dnorm(0.0, 1.0/1e4)
+    
+} "
+
+set.seed(102)
+
+data_jagsq = as.list(badhealth)
+
+paramsq = c("int", "b_badh", "b_age")
+
+modq = jags.model(textConnection(mod_stringq), data=data_jagsq, n.chains=3)
+update(modq, 1e3)
+
+mod_simq = coda.samples(model=modq,
+                        variable.names=paramsq,
+                        n.iter=5e3)
+mod_csimq = as.mcmc(do.call(rbind, mod_simq))
+
+## convergence diagnostics
+plot(mod_simq)
+
+gelman.diag(mod_simq)
+autocorr.diag(mod_simq)
+autocorr.plot(mod_simq)
+effectiveSize(mod_simq)
+
+##loglamq1 compute DIC
+dicq = dic.samples(modq, n.iter=1e3)
+```
+
+
+```{r}
+#Question:
+xq1 = c(0.8, 1.2)
+mod_csimq1 = c(-0.3, 1)
+loglamq1 = 1.5 + mod_csimq1 %*% xq1
+
+lamq1 = exp(loglamq1)
+lamq1
+```
+
+```{r}
+#Q2:
+dic
+dicq
+```
+
+```{r}
+yq = rpois(n=10e5, lambda=30)
+mean(yq<22)
+
+p22=ppois(21, 30)
+p22
+```
+
+```{r}
+#Question5-8
+library(readcsv)
+callers <- read.csv("C:/Users/33219/Desktop/callers.csv")
+View(callers)
+
+any(is.na(callers))
+dat = na.omit(callers)
+plot(dat)
+plot(dat$isgroup2, dat$calls/dat$days_active)
+```
+
+```{r}
+library("rjags")
+mod_stringc = " model {
+for (i in 1:length(calls)) {
+		calls[i] ~ dpois( days_active[i] * lam[i] )
+		log(lam[i]) = b0 + b[1]*age[i] + b[2]*isgroup2[i]
+}
+	  b0 ~ dnorm(0.0, 1.0/1e6)
+    b[1] ~ dnorm(0.0, 1.0/1e4)
+    b[2] ~ dnorm(0.0, 1.0/1e4)
+    
+} "
+set.seed(102)
+
+data_jagsc = as.list(dat)
+
+paramsc = c("b0", "b[1]", "b[2]")
+
+modc = jags.model(textConnection(mod_stringc), data=data_jagsc, n.chains=3)
+update(modc, 1e3)
+
+mod_simc = coda.samples(model=modc,
+                        variable.names=paramsc,
+                        n.iter=5e3)
+mod_csimc = as.mcmc(do.call(rbind, mod_simc))
+
+## convergence diagnostics
+plot(mod_simc)
+
+gelman.diag(mod_simc)
+autocorr.diag(mod_simc)
+autocorr.plot(mod_simc)
+effectiveSize(mod_simc)
+
+##loglamq1 compute DIC
+dicc = dic.samples(modc, n.iter=1e3)
+
+```
+
+```{r}
+summary(mod_simc)
+1-pnorm(1,1.55,0.15)
+```
+

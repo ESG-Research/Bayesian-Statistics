@@ -1,0 +1,330 @@
+---
+title: "R Car and Gibbs(JAGS)"
+author: "Zhaojie"
+date: "8/23/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+library(car)
+```
+
+```{r}
+data("Leinhardt")
+?Leinhardt
+head(Leinhardt)
+str(Leinhardt)
+pairs(Leinhardt)
+```
+
+```{r}
+#We’ll start with a simple linear regression model that relates infant mortality to per capita income.
+plot(infant ~ income, data=Leinhardt)
+hist(Leinhardt$infant)
+hist(Leinhardt$income)
+```
+
+```{r}
+#After Plot and Histogram we can see there is huge right-skew
+
+#So the short answer is no. A linear regression is not appropriate for these variables. However, we did notice that these variables are positive valued and very strongly right skewed. 
+
+#That's a hint that we could try looking at this on the log scale.
+```
+
+```{r}
+#Transform Variables with Log
+Leinhardt$loginfant = log(Leinhardt$infant)
+Leinhardt$logincome = log(Leinhardt$income)
+#See Linear Relationship with log
+plot(loginfant ~ logincome, data=Leinhardt)
+
+#Again, Positive and Right-skewed quantities are hints.
+```
+
+```{r}
+#The Model
+#The reference Bayesian analysis (with a noninformative prior) is available directly in R.
+lgmod = lm(loginfant ~ logincome, data=Leinhardt)
+summary(lgmod)
+
+#其中 (4 observations deleted due to missingness)
+#我们可以用以下公式主动删除Missing项
+dat = na.omit(Leinhardt)
+```
+
+```{r}
+#Model in JAGS
+library("rjags")
+
+mod_string = "model {
+ for (i in 1:n) {
+   y[i] ~ dnorm(mean =mu[i] ,prec) #这里prec代表precision，是1/sig2
+   mu[i] = b[1] + b[2]*logincome[i]
+   }
+ for (j in 1:2) {
+   b[j] ~ dnorm(0,1/1e6) #1e6代表了non-informative
+   }
+   prec ~ dgamma(5/2, 5*10/2) #这里用gamma下面还要换成inverse
+   sig2= 1/prec #注意这里其实sig2是inverse gamma
+   sig = sqrt(sig2)
+ }"
+```
+
+```{r}
+#Set Up the JAGS Model
+
+set.seed(72)
+data1_jags = list(y=dat$loginfant, n=nrow(dat), 
+              log_income=dat$logincome)
+
+params1 = c("b", "sig")
+
+inits1 = function() {
+    inits = list("b"=rnorm(2,0.0,100.0), "prec"=rgamma(1,1.0,1.0))
+}
+
+mod1 = jags.model(textConnection(mod1_string), data=data1_jags, inits=inits1, n.chains=3)
+```
+
+```{r}
+update(mod1, 1000) # burn-in
+```
+
+```{r}
+mod1_simulation = coda.samples(model=mod1,
+                        variable.names=params1,
+                        n.iter=5000)
+
+mod1_csimulation = do.call(rbind, mod1_simulation) # combine multiple chains
+```
+
+```{r}
+#Convergence Diagnos
+plot(mod1_simulation)
+#Gelman-Rubin Test
+gelman.diag(mod1_simulation) #CLose to 1 suggest Convergence
+#Autocorrelation Test
+autocorr.diag(mod1_simulation)
+autocorr.plot(mod1_csimulation)
+#有Autocorrelation存在，就必须要check effective sample size
+effectiveSize(mod1_csimulation)
+```
+
+```{r}
+summary(mod1_simulation)
+#1001:6000表示前1001作为burn-in
+#一共run三个chains， 每个5000size，则共15000次
+summary(lgmod)#和(noninformative) Bayesian linear model进行比较
+#可以发现coefficients的估计大致相同，但是residual有差别，这是由于我们priori了residual
+```
+
+```{r}
+#Residual Analysis
+#Difference between estimate value y^ and real y
+#Checking residuals (the difference between the response and the model’s prediction for that value) is important with linear models since residuals can reveal violations of the assumptions we made to specify the model. In particular, we are looking for any sign that the model is not linear, normally distributed, or that the observations are not independent (conditional on covariates).
+```
+
+```{r}
+#First, let’s look at what would have happened if we fit the reference linear model to the un-transformed variables.
+#The specification wrong(非线性当线性对待的错误)
+lmod0 = lm(infant ~ income, data=Leinhardt)
+plot(resid(lmod0)) #to check independence (looks okay)
+plot(predict(lmod0), resid(lmod0)) #to check for linearity, constant variance (looks bad)图中可见residual的variance不是固定的
+qqnorm(resid(lmod0)) # to check Normality assumption (we want this to be a straight line)不是直线，说明residual不服从正态分布
+
+```
+
+```{r}
+#Now let’s return to our model fit to the log-transformed variables. In a Bayesian model, we have distributions for residuals, but we’ll simplify and look only at the residuals evaluated at the posterior mean of the parameters.
+X = cbind(rep(1.0, data1_jags$n), data1_jags$log_income)
+head(X)
+(pm_params1 = colMeans(mod1_csimulation)) # posterior mean
+yhat1 = drop(X %*% pm_params1[1:2])
+resid1 = data1_jags$y - yhat1
+plot(resid1) # against data index No Pattern Good
+plot(yhat1, resid1) # against predicted values No Pattern Good
+qqnorm(resid1) # checking normality of residuals Almost a Line Good
+plot(predict(lgmod), resid(lgmod)) # to compare with reference linear model No pattern Good
+
+#Find the residual outliers
+rownames(dat)[order(resid1, decreasing=TRUE)[1:5]] # which countries have the largest positive residuals?
+#考虑Residual Outliers是否数据收集准确，如果它们不能代表我们需要分析的数据，则考虑删去掉这些数据，如果不应该删去，接下来考虑如何处理。
+```
+
+```{r}
+#处理Residual的问题：error increase/decrease，extremely outliers
+#Alternative Models
+#一,增加和定义更多的解释变量来重新specific model
+#二，Likelihood改用T distribution而不是Normal,因为T更好的兼容Outliers，即被解释变量Y总体不再出自正态分布而是出自T分布
+#T(mean,tau,df) df越小尾巴越厚
+#tau近似服从InversGamma，df近似服从exp
+#注意当degree of Free小于2时，T分布没有mean和Var参数。
+```
+
+```{r}
+#把Y从~N(mean,sd)修改为~T(mean,tau,df) 如下操作：
+
+mod3_string = " model {
+    for (i in 1:length(y)) {
+        y[i] ~ dt( mu[i], tau, df )
+        mu[i] = b[1] + b[2]*log_income[i] + b[3]*is_oil[i]
+    }
+    
+    for (i in 1:3) {
+        b[i] ~ dnorm(0.0, 1.0/1.0e6)
+    }
+    
+    df = nu + 2.0 # we want degrees of freedom > 2 to guarantee existence of mean and variance
+    nu ~ dexp(1.0)
+    
+    tau ~ dgamma(5/2.0, 5*10.0/2.0) # tau is close to, but not equal to the precision
+    sig = sqrt( 1.0 / tau * df / (df - 2.0) ) # standard deviation of errors
+} "
+```
+
+
+```{r}
+#Deviance Information Criterion campare Alternative models preformance on data.
+#use a quantity known as the deviance information criterion, often referred to as the dic,which essentially calculates the postural mean of the log likelihood and adds a penalty formodel complexity.
+#Let us calculate DIC
+dic.samples(mod1, n.iter=1e3)
+dic.samples(mod2, n.iter=1e3)
+
+```
+
+```{r}
+#The first approach is to look for additional covariates that may be able to explain the outliers. 
+library("rjags")
+
+mod2_string = " model {
+    for (i in 1:length(y)) {
+        y[i] ~ dnorm(mu[i], prec)
+        mu[i] = b[1] + b[2]*log_income[i] + b[3]*is_oil[i]
+    }
+    
+    for (i in 1:3) {
+        b[i] ~ dnorm(0.0, 1.0/1.0e6)
+    }
+    
+    prec ~ dgamma(5/2.0, 5*10.0/2.0)
+    sig = sqrt( 1.0 / prec )
+} "
+
+
+set.seed(73)
+data2_jags = list(y=dat$loginfant, log_income=dat$logincome,
+                  is_oil=as.numeric(dat$oil=="yes"))
+data2_jags$is_oil
+
+params2 = c("b", "sig")
+
+inits2 = function() {
+    inits = list("b"=rnorm(3,0.0,100.0), "prec"=rgamma(1,1.0,1.0))
+}
+
+mod2 = jags.model(textConnection(mod2_string), data=data2_jags, inits=inits2, n.chains=3)
+update(mod2, 1e3) # burn-in
+
+mod2_sim = coda.samples(model=mod2,
+                        variable.names=params2,
+                        n.iter=5e3)
+
+mod2_csim = as.mcmc(do.call(rbind, mod2_sim)) # combine multiple chains
+#As usual, check the convergence diagnostics.
+plot(mod2_sim)
+gelman.diag(mod2_sim)
+autocorr.diag(mod2_sim)
+autocorr.plot(mod2_sim)
+
+effectiveSize(mod2_sim)
+
+summary(mod2_sim)
+```
+
+```{r}
+#Quiz:
+data("Anscombe")
+length(Anscombe$education)
+modq1_string = " model {
+    for (i in 1:length(education)) {
+        education[i] ~ dnorm(mu[i], prec)
+        mu[i] = b0 + b[1]*income[i] + b[2]*young[i] + b[3]*urban[i]
+    }
+    
+    b0 ~ dnorm(0.0, 1.0/1.0e6)
+    for (i in 1:3) {
+        b[i] ~ dnorm(0.0, 1.0/1.0e6)
+    }
+    
+    prec ~ dgamma(1.0/2.0, 1.0*1500.0/2.0)
+    	
+    sig2 = 1.0 / prec
+    sig = sqrt(sig2)
+} "
+
+
+
+data_jags = as.list(Anscombe)
+set.seed(73)
+
+dataq_jags = list(education=data_jags$education, income=data_jags$income,young=data_jags$young,urban=data_jags$urban)
+paramsq = c("b", "sig")
+
+dataq_jags
+initsq = function() {
+    inits = list("b"=rnorm(3,0.0,100.0), "prec"=rgamma(1,1.0,1.0))
+}
+
+modq = jags.model(textConnection(modq1_string), data=dataq_jags, inits=initsq, n.chains=3)
+
+update(modq, 1e3) # burn-in
+
+modq_sim = coda.samples(model=modq,
+                        variable.names=paramsq,
+                        n.iter=5e3)
+
+modq_csim = as.mcmc(do.call(rbind, modq_sim)) # combine multiple chains
+#As usual, check the convergence diagnostics.
+plot(modq_sim)
+gelman.diag(modq_sim)
+autocorr.diag(modq_sim)
+autocorr.plot(modq_sim)
+
+effectiveSize(modq_sim)
+
+summary(modq_sim)
+dic.samples(modq,n.iter=1e5)
+summary(modq)
+```
+
+```{r}
+modq1 = lm(education ~ income+young+urban, data=Anscombe)
+summary(modq1)
+dic.samples(modq1, n.iter=100000)
+```
+

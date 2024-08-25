@@ -1,0 +1,202 @@
+---
+title: "ANOVA"
+author: "Zhaojie"
+date: "8/24/2024"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+data("PlantGrowth")
+?PlantGrowth
+head(PlantGrowth)
+```
+
+```{r}
+#Because the explanatory variable group is a factor and not continuous, we choose to visualize the data with box plots rather than scatter plots.
+
+boxplot(weight~group, data=PlantGrowth)
+
+#The box plots summarize the distribution of the data for each of the three groups. It appears that treatment 2 has the highest mean yield. It might be questionable whether each group has the same variance, but we’ll assume that is the case.
+```
+
+```{r}
+lmod = lm(weight ~ group, data=PlantGrowth)
+summary(lmod)
+anova(lmod)
+plot(lmod)
+
+#The anova() function in R compares variability of observations between the treatment groups to variability within the treatment groups to test whether all means are equal or whether at least one is different. The small p-value here suggests that the means are not all equal.意味着治疗是有效果的。
+```
+library("rjags")
+```{r}
+#JAGS Model
+mod_string = " model {
+    for (i in 1:length(y)) {
+        y[i] ~ dnorm(mu[grp[i]], prec)
+    }
+    
+    for (j in 1:3) {
+        mu[j] ~ dnorm(0.0, 1.0/1.0e6)
+    }
+    
+    prec ~ dgamma(5/2.0, 5*1.0/2.0)
+    sig = sqrt( 1.0 / prec )
+} "
+
+set.seed(82)
+str(PlantGrowth)
+data_jags = list(y=PlantGrowth$weight, 
+              grp=as.numeric(PlantGrowth$group))
+
+params = c("mu", "sig")
+
+inits = function() {
+    inits = list("mu"=rnorm(3,0.0,100.0), "prec"=rgamma(1,1.0,1.0))
+}
+
+mod = jags.model(textConnection(mod_string), data=data_jags, inits=inits, n.chains=3)
+update(mod, 1e3)
+
+mod_sim = coda.samples(model=mod,
+                        variable.names=params,
+                        n.iter=5e3)
+mod_csim = as.mcmc(do.call(rbind, mod_sim)) # combined chains
+```
+
+Model checking
+As usual, we check for convergence of our MCMC.
+```{r}
+plot(mod_sim)
+
+gelman.diag(mod_sim) # "1" suggest convergence
+autocorr.diag(mod_sim)
+effectiveSize(mod_sim)
+```
+
+We can also look at the residuals to see if there are any obvious problems with our model choice.
+```{r}
+(pm_params = colMeans(mod_csim))
+yhat = pm_params[1:3][data_jags$grp]
+resid = data_jags$y - yhat
+resid
+plot(resid,xlim = c(0,30),ylim = c(-2,2))
+plot(yhat, resid)
+```
+
+```{r}
+summary(mod_sim)
+
+#The HPDinterval() function in the coda package calculates intervals of highest posterior density for each parameter.
+
+HPDinterval(mod_csim)
+HPDinterval(mod_csim,0.9)
+```
+We are interested to know if one of the treatments increases mean yield. It is clear that treatment 1 does not. What about treatment 2?
+```{r}
+mean(mod_csim[,3] > mod_csim[,1])
+#[1] 0.9414667 概率很大
+HPDinterval(mod_csim[,3]-mod_csim[,1],prob=0.95) #mu3 - mu1 在95%的概率区间
+```
+```{r}
+
+There is a high posterior probability that the mean yield for treatment 2 is greater than the mean yield for the control group.
+It may be the case that treatment 2 would be costly to put into production. Suppose that to be worthwhile, this treatment must increase mean yield by 10%. What is the posterior probability that the increase is at least that?
+mean(mod_csim[,3] > 1.1*mod_csim[,1])
+#[1] 0.4905333 We have about 50/50 odds that adopting treatment 2 would increase mean yield by at least 10%.
+```
+
+```{r}
+#Question3-8
+mod8_string = " model {
+    for (i in 1:length(y)) {
+        y[i] ~ dnorm(mu[grp[i]], prec[grp[i]])
+    }
+    
+    for (j in 1:3) {
+        mu[j] ~ dnorm(0.0, 1.0/1.0e6)
+        
+    }
+    for (j in 1:3) {
+        prec[j] ~ dgamma(5/2.0, 5*1.0/2.0)
+        
+    }
+    sig = sqrt( 1.0 / prec)
+} "
+
+set.seed(82)
+str(PlantGrowth)
+data8_jags = list(y=PlantGrowth$weight, 
+              grp=as.numeric(PlantGrowth$group))
+
+params8 = c("mu", "sig")
+
+inits8 = function() {
+    inits = list("mu"=rnorm(3,0.0,100.0), "prec"=rgamma(3,1.0,1.0))
+}
+
+mod8 = jags.model(textConnection(mod8_string), data=data8_jags, inits=inits8, n.chains=3)
+update(mod8, 1e3)
+
+mod_sim8 = coda.samples(model=mod8,
+                        variable.names=params,
+                        n.iter=5e3)
+mod_csim8 = as.mcmc(do.call(rbind, mod_sim8)) # combined chains
+```
+
+```{r}
+plot(mod_sim)
+
+gelman.diag(mod_sim)
+autocorr.diag(mod_sim)
+effectiveSize(mod_sim)
+summary(mod_sim)
+```
+```{r}
+plot(mod_sim8)
+
+gelman.diag(mod_sim8)
+autocorr.diag(mod_sim8)
+effectiveSize(mod_sim8)
+summary(mod_sim8)
+```
+
+```{r}
+dic.samples(mod,n.iter=1e5)
+dic.samples(mod8,n.iter=1e5)
+```
+
+```{r}
+summary(mod_sim)
+HPDinterval(mod_csim[,3]-mod_csim[,1],prob=0.95)
+
+```
+
+```{r}
+mod_cm = lm(weight ~ -1 + group, data=PlantGrowth)
+summary(mod_cm)
+```
+
