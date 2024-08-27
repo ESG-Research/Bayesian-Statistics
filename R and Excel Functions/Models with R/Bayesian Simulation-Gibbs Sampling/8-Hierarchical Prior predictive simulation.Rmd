@@ -1,0 +1,263 @@
+---
+title: "Hierarchical Prior predictive simulation"
+author: "Zhaojie"
+date: "8/25/2024"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+library(readr)
+Cookies <- read_table2("C:/Users/33219/Desktop/Cookies.txt")
+View(Cookies)
+any(is.na(Cookies))
+dat = na.omit(Cookies)
+names(dat) <- c("chips", "location")
+names(dat)
+```
+
+```{r}
+table(dat$location)
+
+boxplot(chips ~ location,data= dat)
+hist(dat$chips)
+
+```
+
+```{r}
+set.seed(112)
+n_sim = 500
+alpha_pri = rexp(n_sim, rate=1.0/2.0)
+beta_pri = rexp(n_sim, rate=5.0)
+mu_pri = alpha_pri/beta_pri
+sig_pri = sqrt(alpha_pri/beta_pri^2)
+
+summary(mu_pri)
+summary(sig_pri)
+lam_pri = rgamma(n=n_sim, shape=alpha_pri, rate=beta_pri)
+summary(lam_pri)
+lam_pri = rgamma(n=n_sim, shape=alpha_pri, rate=beta_pri)
+summary(lam_pri)
+(y_pri = rpois(n=150, lambda=rep(lam_pri, each=30)))
+summary(y_pri)
+```
+
+```{r}
+#JAGS Model
+library("rjags")
+mod_string = " model {
+for (i in 1:length(chips)) {
+  chips[i] ~ dpois(lam[location[i]])
+}
+
+for (j in 1:max(location)) {
+  lam[j] ~ dgamma(alpha, beta)
+}
+
+alpha = mu^2 / sig^2
+beta = mu / sig^2
+
+mu ~ dgamma(2.0, 1.0/5.0)
+sig ~ dexp(1.0)
+
+} "
+
+set.seed(113)
+
+data_jags = as.list(dat)
+
+params = c("lam", "mu", "sig")
+
+mod = jags.model(textConnection(mod_string), data=data_jags, n.chains=3)
+update(mod, 1e3)
+
+mod_sim = coda.samples(model=mod,
+                       variable.names=params,
+                       n.iter=5e3)
+mod_csim = as.mcmc(do.call(rbind, mod_sim))
+
+## convergence diagnostics
+plot(mod_sim)
+
+gelman.diag(mod_sim)
+autocorr.diag(mod_sim)
+autocorr.plot(mod_sim)
+effectiveSize(mod_sim)
+
+## compute DIC
+dic = dic.samples(mod, n.iter=1e3)
+```
+After assessing convergence, we can check the fit via residuals. With a hierarhcical model, there are now two levels of residuals: the observation level and the location mean level. To simplify, we’ll look at the residuals associated with the posterior means of the parameters.
+
+First, we have observation residuals, based on the estimates of location means.
+```{r}
+## observation level residuals
+(pm_params = colMeans(mod_csim))
+```
+
+```{r}
+yhat = rep(pm_params[1:5], each=30)
+resid = dat$chips - yhat
+plot(resid)
+```
+
+```{r}
+#residual against predicted values
+plot(jitter(yhat), resid)
+#泊松分布Var=Mean，Mean越大的分布Var也越大。
+var(resid[yhat<7])
+var(resid[yhat>11])
+```
+Also, we can look at how the location means differ from the overall mean μ
+
+```{r}
+## location level residuals
+lam_resid = pm_params[1:5] - pm_params["mu"]
+plot(lam_resid)
+abline(h=0, lty=2)
+```
+
+```{r}
+#后验参数lam[1]值大于9的概率如下
+summary(mod_sim)
+mean(mod_csim[,"lam[1]"] > 9) # posterior probability that 
+```
+
+```{r}
+#由数据分析知厂1生产曲奇，巧克力豆少于7的概率如下
+yq = rpois(n=10e5, lambda=mod_csim[,"lam[1]"])
+mean(yq<7)
+
+
+p7=ppois(6, 9.288)
+p7
+```
+
+Just as we did with the prior distribution, we can use these posterior samples to get Monte Carlo estimates that interest us from the posterior predictive distribution.
+
+For example, we can use draws from the posterior distribution of μ and σ to simulate the posterior predictive distribution of the mean λ for a new location.
+```{r}
+#Posterior predictive simulation
+```
+
+```{r}
+(n_sim = nrow(mod_csim))
+lam_pred = rgamma(n=n_sim, shape=mod_csim[,"mu"]^2/mod_csim[,"sig"]^2, 
+                  rate=mod_csim[,"mu"]/mod_csim[,"sig"]^2)
+hist(lam_pred)
+length(lam_pred)
+```
+
+```{r}
+mean(lam_pred< 10)
+```
+Using these λ draws, we can go to the observation level and simulate the number of chips per cookie, which takes into account the uncertainty in λ
+:
+```{r}
+y_pred = rpois(n=n_sim, lambda=lam_pred)
+hist(y_pred)
+```
+```{r}
+mean(y_pred<7)#巧克力豆少于7个的概率是0.265
+hist(dat$chips)
+```
+此时p7=ppois(, )公式不再适用，因为是纯MCMC Simulation
+    p7
+```{r}
+#问更细致的概率问题： what is the posterior probability that the next cookie produced in Location 2 will have fewer than seven chips?
+y_pred1 = rpois(n=n_sim, lambda=mod_csim[,"lam[2]"])
+mean(y_pred1<7)
+hist(y_pred1)
+```
+
+```{r}
+
+```
+
+```{r}
+#Question Practice
+library(readr)
+pctgrowth <- read_csv("C:/Users/33219/Desktop/pctgrowth.csv")
+View(pctgrowth)
+any(is.na(pctgrowth))
+dat = na.omit(pctgrowth)
+
+```
+
+```{r}
+boxplot(dat$y~dat$grp)
+```
+
+```{r}
+library("rjags")
+
+mod_string = "model {
+ for (i in 1:length(y)) {
+   y[i] ~ dnorm(mu[grp[i]] ,prec) 
+   }
+ for (j in 1:max(grp)) {
+  mu[j] ~ dnorm(mg ,trec) 
+ }
+   
+   mg ~ dnorm(0,1e6)
+   
+   trec ~ dgamma(1/2,1*3/2)
+   tao2=1/trec
+   tao=sqrt(tao2)
+   
+   prec ~ dgamma(2/2, 2*1/2) #这里用gamma下面还要换成inverse
+   sig2= 1/prec #注意这里其实sig2是inverse gamma
+   sig = sqrt(sig2)
+ }"
+
+set.seed(102)
+
+data_jags = as.list(dat)
+
+params = c("mu", "sig", "mg", "tao")
+
+mod = jags.model(textConnection(mod_string), data=data_jags, n.chains=3)
+update(mod, 1e3)
+
+mod_sim = coda.samples(model=mod,
+                        variable.names=params,
+                        n.iter=5e3)
+mod_csim = as.mcmc(do.call(rbind, mod_sim))
+
+plot(density(mod_csim[,"mu[1]"]))
+summary(mod_sim)
+```
+
+```{r}
+means_anova = tapply(dat$y, INDEX=dat$grp, FUN=mean)
+means_anova
+```
+
+```{r}
+plot(means_anova)
+points("mu[1]", col="red") ## where means_theta are the posterior point estimates for the industry means.
+
+```
