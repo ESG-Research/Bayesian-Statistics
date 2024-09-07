@@ -1,7 +1,10 @@
 # Bayesian-Statistics
 Bayesian statistics methodology, models and code.
+
 Skill checklist:
+
 Bayesian Statistics
+
 1)Interpret and specify the components of Bayesian statistical models: likelihood, prior, posterior.
   Types of priors: noninformative, computationally convenient (e.g., conjugate), subjective (e.g., skeptical), structured (e.g., shrinkage using Laplace prior), and     hierarchical. Each of these captures in some sense our “prior” beliefs about model parameters.
 
